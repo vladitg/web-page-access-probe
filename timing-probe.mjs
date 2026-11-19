@@ -62,7 +62,7 @@ async function visit(page, url, waitMs = 0) {
   }
 }
 
-const report = { checkedAt: new Date().toISOString(), runtime: "GitHub-hosted Linux VM, normal headed " + engine, engine,
+const report = { checkedAt: new Date().toISOString(), runtime: "GitHub-hosted " + process.platform + " VM, normal headed " + engine, engine,
   runId: process.env.GITHUB_RUN_ID ?? null, requestedDelayMs: 10_000, warmSession, plannedRounds: rounds, rounds: [] };
 const browser = await browserType.launch({ ...(engine === "chromium" ? { executablePath: process.env.CHROME_BIN } : {}), headless: false });
 try {

@@ -24,6 +24,11 @@ on:
         type: choice
         default: "2"
         options: ["2", "4"]
+      runner:
+        description: Standard public runner
+        type: choice
+        default: ubuntu-24.04
+        options: [ubuntu-24.04, macos-15]
 permissions:
   contents: read
 concurrency:
@@ -31,7 +36,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   check:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.runner || 'ubuntu-24.04' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -57,4 +62,9 @@ jobs:
           WARM_SESSION_WITH_FEED: ${{ inputs.warm_session && '1' || '0' }}
           ROUNDS: ${{ inputs.rounds || '2' }}
           PROBE_ENGINE: ${{ inputs.engine || 'chromium' }}
-        run: xvfb-run -a node timing-probe.mjs
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a node timing-probe.mjs
+          else
+            node timing-probe.mjs
+          fi

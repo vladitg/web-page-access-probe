@@ -1,0 +1,7 @@
+{
+  "name": "public-page-access-probe",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {"playwright-core": "1.65.1"}
+}

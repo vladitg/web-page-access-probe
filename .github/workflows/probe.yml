@@ -1,0 +1,31 @@
+name: Public page access check
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: JSON array of public HTTPS URLs with expected record IDs and expiration flags
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: public-page-access-check
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Prepare reader
+        run: |
+          node --version
+          google-chrome --version
+          npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify public page data twice
+        env:
+          TARGETS_JSON: ${{ inputs.targets }}
+          CHROME_BIN: /usr/bin/google-chrome
+        run: node probe.mjs

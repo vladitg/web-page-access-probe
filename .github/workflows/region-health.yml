@@ -28,7 +28,7 @@ jobs:
             if(i)await new Promise(resolve=>setTimeout(resolve,20000));
             const response=await fetch(url,{headers:{'User-Agent':'PublicPageAccessProbe-RegionTest/1.0'},signal:AbortSignal.timeout(40000),redirect:'manual'});
             const data=await response.json();
-            const row={round:i+1,httpStatus:response.status,placement:response.headers.get('cf-placement'),...data};
+            const row={round:i+1,httpStatus:response.status,responsePlacement:response.headers.get('cf-placement'),...data};
             results.push(row);console.log('REGION_RESULT '+JSON.stringify(row));
           }
           const report={runtime:'GitHub-hosted Windows VM',platform:os.platform(),runnerEnvironment:process.env.RUNNER_ENVIRONMENT,

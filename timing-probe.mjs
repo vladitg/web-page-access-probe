@@ -1,11 +1,14 @@
 import fs from "node:fs/promises";
 import { setTimeout as delay } from "node:timers/promises";
-import { chromium } from "playwright-core";
+import { chromium, firefox, webkit } from "playwright-core";
 
 const homepage = new URL(process.env.HOME_URL);
 const feed = new URL(process.env.FEED_URL);
 const rounds = Number(process.env.ROUNDS ?? "2");
 const warmSession = process.env.WARM_SESSION_WITH_FEED === "1";
+const engine = process.env.PROBE_ENGINE ?? "chromium";
+const browserType = { chromium, firefox, webkit }[engine];
+if (!browserType) throw new Error("Unsupported browser engine.");
 if (![2, 4].includes(rounds)) throw new Error("Unsupported number of rounds.");
 if (homepage.protocol !== "https:" || homepage.origin !== feed.origin || homepage.username || homepage.password || homepage.port ||
     feed.username || feed.password || feed.port || !homepage.hostname.includes(".") || /^(?:\d|localhost)/i.test(homepage.hostname)) {
@@ -59,9 +62,9 @@ async function visit(page, url, waitMs = 0) {
   }
 }
 
-const report = { checkedAt: new Date().toISOString(), runtime: "GitHub-hosted Linux VM, normal headed Chrome",
+const report = { checkedAt: new Date().toISOString(), runtime: "GitHub-hosted Linux VM, normal headed " + engine, engine,
   runId: process.env.GITHUB_RUN_ID ?? null, requestedDelayMs: 10_000, warmSession, plannedRounds: rounds, rounds: [] };
-const browser = await chromium.launch({ executablePath: process.env.CHROME_BIN, headless: false });
+const browser = await browserType.launch({ ...(engine === "chromium" ? { executablePath: process.env.CHROME_BIN } : {}), headless: false });
 try {
   report.browserVersion = browser.version();
   const controlContext = await browser.newContext();

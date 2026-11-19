@@ -14,30 +14,47 @@ on:
         description: Open the RSS first and retain its ordinary session cookies
         type: boolean
         default: false
+      engine:
+        description: Normal browser engine to test
+        type: choice
+        default: chromium
+        options: [chromium, firefox, webkit]
+      rounds:
+        description: Number of reads with the same browser session
+        type: choice
+        default: "2"
+        options: ["2", "4"]
 permissions:
   contents: read
 concurrency:
-  group: sequential-page-timing-check
+  group: sequential-page-timing-check-${{ inputs.engine || 'chromium' }}
   cancel-in-progress: false
 jobs:
   check:
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
       - name: Prepare normal browser
+        env:
+          PROBE_ENGINE: ${{ inputs.engine || 'chromium' }}
         run: |
           node --version
-          probe_chrome="$(command -v google-chrome)"
-          "$probe_chrome" --version
-          printf 'CHROME_BIN=%s\n' "$probe_chrome" >> "$GITHUB_ENV"
           npm ci --ignore-scripts --no-audit --no-fund
+          if [ "$PROBE_ENGINE" = "chromium" ]; then
+            probe_chrome="$(command -v google-chrome)"
+            "$probe_chrome" --version
+            printf 'CHROME_BIN=%s\n' "$probe_chrome" >> "$GITHUB_ENV"
+          else
+            npx playwright-core install --with-deps "$PROBE_ENGINE"
+          fi
       - name: Compare direct RSS with homepage then ten-second pause
         env:
           HOME_URL: ${{ inputs.homepage }}
           FEED_URL: ${{ inputs.feed }}
           WARM_SESSION_WITH_FEED: ${{ inputs.warm_session && '1' || '0' }}
-          ROUNDS: ${{ inputs.warm_session && '4' || '2' }}
+          ROUNDS: ${{ inputs.rounds || '2' }}
+          PROBE_ENGINE: ${{ inputs.engine || 'chromium' }}
         run: xvfb-run -a node timing-probe.mjs

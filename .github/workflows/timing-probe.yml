@@ -10,6 +10,10 @@ on:
         description: Public HTTPS RSS feed on the same origin
         required: true
         type: string
+      warm_session:
+        description: Open the RSS first and retain its ordinary session cookies
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -34,4 +38,6 @@ jobs:
         env:
           HOME_URL: ${{ inputs.homepage }}
           FEED_URL: ${{ inputs.feed }}
+          WARM_SESSION_WITH_FEED: ${{ inputs.warm_session && '1' || '0' }}
+          ROUNDS: ${{ inputs.warm_session && '4' || '2' }}
         run: xvfb-run -a node timing-probe.mjs

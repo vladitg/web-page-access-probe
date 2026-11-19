@@ -4,6 +4,9 @@ import { chromium } from "playwright-core";
 
 const homepage = new URL(process.env.HOME_URL);
 const feed = new URL(process.env.FEED_URL);
+const rounds = Number(process.env.ROUNDS ?? "2");
+const warmSession = process.env.WARM_SESSION_WITH_FEED === "1";
+if (![2, 4].includes(rounds)) throw new Error("Unsupported number of rounds.");
 if (homepage.protocol !== "https:" || homepage.origin !== feed.origin || homepage.username || homepage.password || homepage.port ||
     feed.username || feed.password || feed.port || !homepage.hostname.includes(".") || /^(?:\d|localhost)/i.test(homepage.hostname)) {
   throw new Error("Only public HTTPS pages on one origin are supported.");
@@ -57,7 +60,7 @@ async function visit(page, url, waitMs = 0) {
 }
 
 const report = { checkedAt: new Date().toISOString(), runtime: "GitHub-hosted Linux VM, normal headed Chrome",
-  runId: process.env.GITHUB_RUN_ID ?? null, requestedDelayMs: 10_000, rounds: [] };
+  runId: process.env.GITHUB_RUN_ID ?? null, requestedDelayMs: 10_000, warmSession, plannedRounds: rounds, rounds: [] };
 const browser = await chromium.launch({ executablePath: process.env.CHROME_BIN, headless: false });
 try {
   report.browserVersion = browser.version();
@@ -65,7 +68,11 @@ try {
   const sequenceContext = await browser.newContext();
   const controlPage = await controlContext.newPage();
   const sequencePage = await sequenceContext.newPage();
-  for (let round = 1; round <= 2; round++) {
+  if (warmSession) {
+    report.warmup = await visit(sequencePage, feed, 10_000);
+    console.log("TIMING_BROWSER_WARMUP " + JSON.stringify(report.warmup));
+  }
+  for (let round = 1; round <= rounds; round++) {
     if (round > 1) await delay(30_000);
     const control = await visit(controlPage, feed);
     await delay(15_000);
@@ -76,7 +83,7 @@ try {
     report.rounds.push(row);
     console.log("TIMING_BROWSER_ROUND " + JSON.stringify(row));
   }
-  report.passed = report.rounds.length === 2 && report.rounds.every(row => row.sourceReadable);
+  report.passed = report.rounds.length === rounds && report.rounds.every(row => row.sourceReadable);
 } finally {
   await browser.close();
 }

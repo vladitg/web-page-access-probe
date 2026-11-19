@@ -6,6 +6,11 @@ on:
         description: JSON array of public HTTPS URLs with expected record IDs and expiration flags
         required: true
         type: string
+      runner:
+        description: Standard GitHub-hosted runner
+        type: choice
+        default: ubuntu-24.04
+        options: [ubuntu-24.04, macos-15]
 permissions:
   contents: read
 concurrency:
@@ -13,11 +18,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   check:
-    strategy:
-      fail-fast: false
-      matrix:
-        runner: [ubuntu-24.04, macos-15]
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -34,10 +35,14 @@ jobs:
           "$probe_chrome" --version
           printf 'CHROME_BIN=%s\n' "$probe_chrome" >> "$GITHUB_ENV"
           npm ci --ignore-scripts --no-audit --no-fund
-      - name: Verify public page data twice
+      - name: Verify public page data with one retained browser session
         env:
           TARGETS_JSON: ${{ inputs.targets }}
           HEADED: "1"
+          RETAIN_SESSION: "1"
+          DIRECT_HTTP: "0"
+          ROUNDS: "3"
+          ROUND_INTERVAL_MS: "60000"
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
             xvfb-run -a node probe.mjs

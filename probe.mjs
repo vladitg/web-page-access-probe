@@ -5,6 +5,11 @@ import os from "node:os";
 import { chromium } from "playwright-core";
 
 const targets=JSON.parse(process.env.TARGETS_JSON??"[]");
+const rounds=Number(process.env.ROUNDS??"2");
+const roundInterval=Number(process.env.ROUND_INTERVAL_MS??"45000");
+const retainSession=process.env.RETAIN_SESSION==="1";
+const directHttp=process.env.DIRECT_HTTP!=="0";
+if(![2,3].includes(rounds)||!Number.isFinite(roundInterval)||roundInterval<30_000||roundInterval>120_000)throw new Error("Unsupported test duration.");
 if(!Array.isArray(targets)||targets.length<2||targets.length>5)throw new Error("Supply 2 to 5 targets.");
 for(const target of targets){
   const url=new URL(target.url);
@@ -44,9 +49,9 @@ async function direct(target){
       ...(response.ok?checkedDetail(detailFromHtml(html),target):{readable:false,reason:"http_error"})};
   }catch(error){return {method:"http",url:target.url,readable:false,reason:"request_error",error:error.message,elapsedMs:Date.now()-started};}
 }
-async function rendered(browser,target){
+async function rendered(browser,target,sharedContext){
   const started=Date.now();
-  const context=await browser.newContext();
+  const context=sharedContext??await browser.newContext();
   const page=await context.newPage();
   let lastNavigationResponse=null;
   page.on("response",response=>{
@@ -65,30 +70,35 @@ async function rendered(browser,target){
       sha256:createHash("sha256").update(html).digest("hex"),elapsedMs:Date.now()-started,
       ...(status>=200&&status<300?checkedDetail(thread,target):{readable:false,reason:"http_error"})};
   }catch(error){return {method:"browser",url:target.url,readable:false,reason:"browser_error",error:error.message,elapsedMs:Date.now()-started};}
-  finally{await context.close();}
+  finally{await page.close();if(!sharedContext)await context.close();}
 }
 const report={checkedAt:new Date().toISOString(),runtime:"GitHub-hosted "+os.platform()+" VM",outsideCloudflareWorkers:true,
   server:{platform:os.platform(),release:os.release(),architecture:os.arch(),runnerEnvironment:process.env.RUNNER_ENVIRONMENT??null,
     image:process.env.ImageOS??null,imageVersion:process.env.ImageVersion??null,runId:process.env.GITHUB_RUN_ID??null},
-  browserVersion:null,browserMode:process.env.HEADED==="1"?"headed":"headless",rounds:[],passed:false};
-let browser;
+  browserVersion:null,browserMode:process.env.HEADED==="1"?"headed":"headless",sessionMode:retainSession?"retained":"fresh-per-page",
+  directHttp,plannedRounds:rounds,roundIntervalMs:roundInterval,rounds:[],passed:false};
+let browser,sharedContext;
 try{
-  browser=await chromium.launch({executablePath:process.env.CHROME_BIN??"/usr/bin/google-chrome",headless:process.env.HEADED!=="1"});
+  const options={executablePath:process.env.CHROME_BIN??"/usr/bin/google-chrome",headless:process.env.HEADED!=="1"};
+  if(retainSession){
+    sharedContext=await chromium.launchPersistentContext("",options);
+    browser=sharedContext.browser();
+  }else browser=await chromium.launch(options);
   report.browserVersion=browser.version();
-  for(let index=0;index<2;index++){
-    if(index)await delay(45_000);
+  for(let index=0;index<rounds;index++){
+    if(index)await delay(roundInterval);
     const round={number:index+1,checkedAt:new Date().toISOString(),results:[]};
     for(const target of targets){
-      round.results.push(await direct(target));
-      round.results.push(await rendered(browser,target));
+      if(directHttp)round.results.push(await direct(target));
+      round.results.push(await rendered(browser,target,sharedContext));
       await delay(2_000);
     }
     report.rounds.push(round);
     for(const result of round.results)console.log("READ_RESULT "+JSON.stringify({round:round.number,...result}));
   }
-  report.passed=report.rounds.length===2&&report.rounds.every(round=>targets.every(target=>round.results.some(result=>result.url===target.url&&result.readable&&result.expectedStateMatches)));
+  report.passed=report.rounds.length===rounds&&report.rounds.every(round=>targets.every(target=>round.results.some(result=>result.url===target.url&&result.readable&&result.expectedStateMatches)));
 }catch(error){report.error=error.message;}
-finally{if(browser)await browser.close();}
+finally{if(sharedContext)await sharedContext.close();else if(browser)await browser.close();}
 await fs.writeFile("report.json",JSON.stringify(report,null,2)+"\n");
 console.log("FINAL_REPORT "+JSON.stringify(report));
 if(process.env.GITHUB_STEP_SUMMARY){

@@ -13,7 +13,11 @@ concurrency:
   cancel-in-progress: false
 jobs:
   check:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -22,10 +26,21 @@ jobs:
       - name: Prepare reader
         run: |
           node --version
-          google-chrome --version
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            probe_chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+          else
+            probe_chrome="$(command -v google-chrome)"
+          fi
+          "$probe_chrome" --version
+          printf 'CHROME_BIN=%s\n' "$probe_chrome" >> "$GITHUB_ENV"
           npm ci --ignore-scripts --no-audit --no-fund
       - name: Verify public page data twice
         env:
           TARGETS_JSON: ${{ inputs.targets }}
-          CHROME_BIN: /usr/bin/google-chrome
-        run: node probe.mjs
+          HEADED: "1"
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run -a node probe.mjs
+          else
+            node probe.mjs
+          fi

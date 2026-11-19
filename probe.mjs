@@ -33,12 +33,13 @@ function checkedDetail(thread,target){
     isExpired:typeof expired==="boolean"?expired:null,
     expiresAt:typeof endTimestamp==="number"&&endTimestamp>0&&endTimestamp<4_102_444_800?new Date(endTimestamp*1000).toISOString():null};
 }
+function publicPageUrl(value){const url=new URL(value);return url.origin+url.pathname;}
 async function direct(target){
   const started=Date.now();
   try{
     const response=await fetch(target.url,{redirect:"follow",signal:AbortSignal.timeout(25_000),headers:{"User-Agent":"PublicPageAccessProbe/1.0",Accept:"text/html,application/xhtml+xml"}});
     const html=await response.text();
-    return {method:"http",url:target.url,status:response.status,finalUrl:response.url,mitigated:response.headers.get("cf-mitigated"),characters:html.length,
+    return {method:"http",url:target.url,status:response.status,finalUrl:publicPageUrl(response.url),mitigated:response.headers.get("cf-mitigated"),characters:html.length,
       sha256:createHash("sha256").update(html).digest("hex"),elapsedMs:Date.now()-started,
       ...(response.ok?checkedDetail(detailFromHtml(html),target):{readable:false,reason:"http_error"})};
   }catch(error){return {method:"http",url:target.url,readable:false,reason:"request_error",error:error.message,elapsedMs:Date.now()-started};}
@@ -47,28 +48,32 @@ async function rendered(browser,target){
   const started=Date.now();
   const context=await browser.newContext();
   const page=await context.newPage();
+  let lastNavigationResponse=null;
+  page.on("response",response=>{
+    if(response.request().isNavigationRequest()&&response.frame()===page.mainFrame())lastNavigationResponse=response;
+  });
   try{
-    const response=await page.goto(target.url,{waitUntil:"domcontentloaded",timeout:30_000});
+    await page.goto(target.url,{waitUntil:"domcontentloaded",timeout:30_000});
+    // Let ordinary page scripts and redirects settle. Do not interact with challenges.
+    await page.waitForFunction(()=>Boolean(window.__INITIAL_STATE__?.threadDetail),null,{timeout:20_000}).catch(()=>{});
+    const response=lastNavigationResponse;
     const status=response?.status()??0;
-    if(status>=200&&status<300){
-      await page.waitForFunction(()=>Boolean(window.__INITIAL_STATE__?.threadDetail),null,{timeout:8_000}).catch(()=>{});
-    }
     const html=await page.content();
     const thread=detailFromHtml(html);
-    return {method:"browser",url:target.url,finalUrl:page.url(),status,
+    return {method:"browser",url:target.url,finalUrl:publicPageUrl(page.url()),status,
       mitigated:response?.headers()["cf-mitigated"]??null,pageTitle:await page.title(),characters:html.length,
       sha256:createHash("sha256").update(html).digest("hex"),elapsedMs:Date.now()-started,
       ...(status>=200&&status<300?checkedDetail(thread,target):{readable:false,reason:"http_error"})};
   }catch(error){return {method:"browser",url:target.url,readable:false,reason:"browser_error",error:error.message,elapsedMs:Date.now()-started};}
   finally{await context.close();}
 }
-const report={checkedAt:new Date().toISOString(),runtime:"GitHub-hosted Ubuntu VM",outsideCloudflareWorkers:true,
+const report={checkedAt:new Date().toISOString(),runtime:"GitHub-hosted "+os.platform()+" VM",outsideCloudflareWorkers:true,
   server:{platform:os.platform(),release:os.release(),architecture:os.arch(),runnerEnvironment:process.env.RUNNER_ENVIRONMENT??null,
     image:process.env.ImageOS??null,imageVersion:process.env.ImageVersion??null,runId:process.env.GITHUB_RUN_ID??null},
-  browserVersion:null,rounds:[],passed:false};
+  browserVersion:null,browserMode:process.env.HEADED==="1"?"headed":"headless",rounds:[],passed:false};
 let browser;
 try{
-  browser=await chromium.launch({executablePath:process.env.CHROME_BIN??"/usr/bin/google-chrome",headless:true});
+  browser=await chromium.launch({executablePath:process.env.CHROME_BIN??"/usr/bin/google-chrome",headless:process.env.HEADED!=="1"});
   report.browserVersion=browser.version();
   for(let index=0;index<2;index++){
     if(index)await delay(45_000);

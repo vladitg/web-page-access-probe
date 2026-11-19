@@ -1,0 +1,39 @@
+name: Regional HTTP diagnostic
+on:
+  workflow_dispatch:
+    inputs:
+      endpoint:
+        description: Public metadata-only diagnostic endpoint on workers.dev
+        required: true
+        type: string
+permissions: {}
+jobs:
+  check:
+    runs-on: windows-2025
+    timeout-minutes: 3
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Compare execution region and request origin
+        env:
+          PROBE_URL: ${{ inputs.endpoint }}
+        run: |
+          node --input-type=module <<'JS'
+          import os from 'node:os';
+          const url=new URL(process.env.PROBE_URL);
+          if(url.protocol!=='https:'||!url.hostname.endsWith('.workers.dev')||url.pathname!=='/region-health-check'||url.username||url.password||url.port||url.search)throw new Error('Unsupported diagnostic endpoint.');
+          const results=[];
+          for(let i=0;i<2;i++){
+            if(i)await new Promise(resolve=>setTimeout(resolve,20000));
+            const response=await fetch(url,{headers:{'User-Agent':'PublicPageAccessProbe-RegionTest/1.0'},signal:AbortSignal.timeout(40000),redirect:'manual'});
+            const data=await response.json();
+            const row={round:i+1,httpStatus:response.status,placement:response.headers.get('cf-placement'),...data};
+            results.push(row);console.log('REGION_RESULT '+JSON.stringify(row));
+          }
+          const report={runtime:'GitHub-hosted Windows VM',platform:os.platform(),runnerEnvironment:process.env.RUNNER_ENVIRONMENT,
+            runId:process.env.GITHUB_RUN_ID,requestOriginUS:results.every(row=>row.clientCountry==='US'),
+            listingReadable:results.every(row=>row.status===200&&row.count>0&&row.numericTemperatures===row.count&&row.expiryFlags===row.count),results};
+          console.log('REGION_PROBE_REPORT '+JSON.stringify(report));
+          process.exitCode=report.listingReadable?0:1;
+          JS
